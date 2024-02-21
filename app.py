@@ -7,11 +7,14 @@ from llama_index.llms.openai import OpenAI
 from llama_index.readers.file import PDFReader
 from dotenv import load_dotenv
 
+from io import BytesIO
+from pdfminer.high_level import extract_text
+
 load_dotenv()
 
 st.set_page_config(
-    page_title="Chat with the PDF",
-    page_icon="🦙",
+    page_title="Resume and Cover Letter Feedback",
+    page_icon="📄",
     layout="centered",
     initial_sidebar_state="auto",
     menu_items=None,
@@ -19,12 +22,55 @@ st.set_page_config(
 
 if "messages" not in st.session_state.keys():  # Initialize the chat messages history
     st.session_state.messages = [
-        {"role": "assistant", "content": "Ask me a question about your document!"}
+        {"role": "assistant", "content": "Upload your document for analysis."}
     ]
 
-uploaded_file = st.file_uploader("Upload a file")
+def analyze_resume(text):
+    feedback = ["Resume Feedback:"]
+    essential_sections = ["experience", "education", "skills"]
+    has_essential_sections = any(section in text.lower() for section in essential_sections)
+
+    if not has_essential_sections:
+        feedback.append("Your resume should include essential sections such as Experience, Education, and Skills.")
+    if "managed" in text.lower() or "led" in text.lower():
+        feedback.append("Good use of action verbs to describe your roles and achievements.")
+    else:
+        feedback.append("Consider using action verbs to describe your roles and achievements.")
+    if len(text.split()) > 500:
+        feedback.append("Your resume may be too long. Consider making it more concise.")
+    else:
+        feedback.append("The length of your resume is appropriate.")
+
+    return " ".join(feedback)
+
+def analyze_cover_letter(text):
+    feedback = ["Cover Letter Feedback:"]
+    if "dear" not in text.lower():
+        feedback.append("Customize your greeting to address a specific person if possible.")
+    if "thank you" not in text.lower():
+        feedback.append("Consider adding a thank you note towards the end of your letter.")
+    if len(text.split()) > 400:
+        feedback.append("Your cover letter may be too long. Aim for a concise message that complements your resume.")
+    else:
+        feedback.append("The length of your cover letter is appropriate.")
+
+    return " ".join(feedback)
+
+def classify_and_analyze_document(text):
+    if "experience" in text.lower() and "education" in text.lower():
+        return analyze_resume(text)
+    elif "dear" in text.lower() or "interview" in text.lower():
+        return analyze_cover_letter(text)
+    else:
+        return "It's challenging to determine if this is a resume or a cover letter. Please ensure the document is relevant to job applications."
+
+    
+uploaded_file = st.file_uploader("Upload your resume or cover letter")
 if uploaded_file:
     bytes_data = uploaded_file.read()
+    text = extract_text(BytesIO(bytes_data))
+    feedback = classify_and_analyze_document(text)
+    st.write(feedback)
     with NamedTemporaryFile(delete=False) as tmp:  # open a named temporary file
         tmp.write(bytes_data)  # write data from the uploaded file into it
         with st.spinner(
@@ -33,6 +79,8 @@ if uploaded_file:
             reader = PDFReader()
             docs = reader.load_data(tmp.name)
             llm = OpenAI(
+                api_key=os.getenv("OPENAI_API_KEY"),
+                base_url=os.getenv("OPENAI_API_BASE"),
                 model="gpt-3.5-turbo",
                 temperature=0.0,
                 system_prompt="You are an expert on the content of the document, provide detailed answers to the questions. Use the document to support your answers.",
